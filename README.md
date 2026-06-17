@@ -23,7 +23,7 @@ Unlike other screenshot tools, it works correctly in all contexts — games, bro
 - **HDR → SDR tone mapping** with adjustable SDR white point (in nits)
 - **Three tone mapping algorithms:** Windows/OBS-style (recommended), ACES filmic [test], Reinhard [test]
 - **Auto-copy to clipboard** after every capture
-- **Toast notification** with a screenshot thumbnail
+- **Fast in-process notifications** — toast with a screenshot thumbnail, rendered in-process (no PowerShell spawn) for instant feedback
 - **System tray** — lives quietly in the notification area
 - **Multi-monitor support** — captures the monitor under the cursor, with correct Win32↔DXGI index mapping
 - **SDR fallback** — if HDR is not active, falls back to dxcam BGRA capture
@@ -35,7 +35,7 @@ Unlike other screenshot tools, it works correctly in all contexts — games, bro
 
 | File | Description |
 |------|-------------|
-| [hdr_screenshot_tool.exe](https://github.com/MagestiUA/HDR_Screenshot_tool_for_windows/releases/latest/download/hdr_screenshot_tool.exe) | Standalone executable (Windows 10/11) |
+| [HDR_Screenshot.exe](https://github.com/pjmdevelopment/HDR_Screenshot/releases/latest/download/HDR_Screenshot.exe) | Standalone executable (Windows 10/11) |
 
 > **Note:** Windows SmartScreen may warn about an unsigned executable. See [Troubleshooting](#troubleshooting) below.
 
@@ -79,8 +79,8 @@ python main.py
 ## Installation
 
 ```bash
-git clone https://github.com/MagestiUA/HDR_Screenshot_tool_for_windows.git
-cd HDR_Screenshot_tool_for_windows
+git clone https://github.com/pjmdevelopment/HDR_Screenshot.git
+cd HDR_Screenshot
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -107,10 +107,10 @@ Settings are stored in `%LOCALAPPDATA%\HDRScreenshotTool\config.json` — the ap
 ## Build as exe
 
 ```bash
-pyinstaller --onefile --windowed --icon app.ico --add-data "app.ico;." main.py
+pyinstaller --onefile --windowed --icon app.ico --add-data "app.ico;." -n HDR_Screenshot main.py
 ```
 
-The executable will be in `dist\main.exe`.
+The executable will be in `dist\HDR_Screenshot.exe` — attach this to a GitHub Release so the [Download](#download) link resolves.
 
 ## Project structure
 
@@ -120,10 +120,12 @@ capture.py           # camera pool, Win32↔DXGI monitor index mapping
 dxgi_capture/        # custom FP16 capture via DXGI Desktop Duplication
   capture.py         # FP16Capture class, raw vtable D3D11 calls
 tonemapping.py       # tone mapping operators, PNG saving
-settings_window.py   # settings UI (customtkinter)
-overlay.py           # fullscreen region selection overlay (tkinter)
+ui.py                # shared UI layer: one persistent Tk root, floating toolbar,
+                     #   region overlay, and fast in-process toast
+settings_window.py   # settings UI (customtkinter, lazily imported)
+overlay.py           # region selection overlay rendering (tkinter)
 clipboard_win.py     # copy image to Windows clipboard
-notification.py      # toast notifications via PowerShell + WinRT
+notification.py      # toast helpers — now rendered in-process via ui.py
 hdr_detect.py        # per-monitor HDR state detection
 config.py            # config.json load/save
 ```
