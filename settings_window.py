@@ -156,7 +156,13 @@ def _window_class():
 
             self.title("HDR Screenshot — Settings")
             self.resizable(False, False)
-            self.geometry("480x420")
+            # Centre on the screen the window opens on.
+            w, h = 480, 420
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            x = max(0, (sw - w) // 2)
+            y = max(0, (sh - h) // 2)
+            self.geometry(f"{w}x{h}+{x}+{y}")
             self.protocol("WM_DELETE_WINDOW", self.destroy)
 
             if os.path.exists(_ICON_PATH):
