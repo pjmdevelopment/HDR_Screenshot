@@ -379,6 +379,13 @@ def main() -> None:
 
     _icon.run(setup=_setup)
 
+    # _icon.run() returns once the tray loop ends (Quit → icon.stop()), so the
+    # tray icon has already been removed cleanly by this point.  Force-terminate
+    # now: a screenshot leaves a live Direct3D11 device + COM-initialised
+    # threads (FP16Capture / dxcam Desktop Duplication) that can stall the normal
+    # interpreter shutdown and leave the process lingering in Task Manager.
+    os._exit(0)
+
 
 if __name__ == "__main__":
     main()
