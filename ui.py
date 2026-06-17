@@ -54,8 +54,29 @@ try:
     _user32.SetWindowDisplayAffinity.restype = wt.BOOL
     _user32.GetAncestor.argtypes = [wt.HWND, wt.UINT]
     _user32.GetAncestor.restype = wt.HWND
+    _user32.SystemParametersInfoW.argtypes = [
+        ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
+    _user32.SystemParametersInfoW.restype = wt.BOOL
 except Exception:
     _user32 = None
+
+_SPI_GETWORKAREA = 0x0030
+
+
+def _primary_work_area() -> "tuple[int, int, int, int] | None":
+    """Primary monitor's work area (screen minus taskbar) as (l, t, r, b),
+    or None if unavailable.  Used so the toolbar never lands under the taskbar
+    when it is docked at the top of the screen."""
+    if _user32 is None:
+        return None
+    try:
+        rect = wt.RECT()
+        if _user32.SystemParametersInfoW(_SPI_GETWORKAREA, 0,
+                                         ctypes.byref(rect), 0):
+            return rect.left, rect.top, rect.right, rect.bottom
+    except Exception:
+        pass
+    return None
 
 
 def _exclude_from_capture(window: tk.Misc) -> bool:
@@ -199,11 +220,19 @@ def _build_toolbar() -> None:
     _tool_button(frame, "⚙", _on_settings)
     _tool_button(frame, "✕", hide_toolbar, accent=False)
 
-    # Initial position: top-centre of the primary screen
+    # Initial position: top-centre of the primary monitor's *work area*, so a
+    # taskbar docked at the top of the screen never overlaps the bar.
     bar.update_idletasks()
-    sw = bar.winfo_screenwidth()
-    x = max(0, (sw - bar.winfo_reqwidth()) // 2)
-    bar.geometry(f"+{x}+12")
+    bw = bar.winfo_reqwidth()
+    wa = _primary_work_area()
+    if wa is not None:
+        left, top, right, _bottom = wa
+        x = max(left, left + (right - left - bw) // 2)
+        y = top + 8
+    else:
+        x = max(0, (bar.winfo_screenwidth() - bw) // 2)
+        y = 12
+    bar.geometry(f"+{x}+{y}")
 
     # Exclude the bar from screen capture so we never have to hide it before a
     # shot (the main perf win for "New → selection mode").
@@ -302,48 +331,51 @@ def _on_settings(*_a) -> None:
 
 # ── Show / hide ───────────────────────────────────────────────────────────────
 
+def _deiconify_toolbar() -> None:
+    if _toolbar is not None:
+        _toolbar.deiconify()
+        _toolbar.lift()
+        _toolbar.attributes("-topmost", True)
+
+
+def _withdraw_toolbar() -> None:
+    if _toolbar is not None:
+        _toolbar.withdraw()
+
+
+# NOTE: ``_toolbar_visible`` is updated *synchronously* here (in the caller's
+# thread) rather than inside the scheduled UI callback.  The tray menu reads it
+# the instant the menu is opened, so the flag must reflect the intended state
+# immediately — otherwise the "Show toolbar" checkmark can lag the real state.
+
 def show_toolbar() -> None:
-    def _do() -> None:
-        global _toolbar_visible
-        if _toolbar is not None:
-            _toolbar.deiconify()
-            _toolbar.lift()
-            _toolbar.attributes("-topmost", True)
-            _toolbar_visible = True
-            _call("apply_config", {"show_toolbar": True})
-    run_on_ui(_do)
+    global _toolbar_visible
+    _toolbar_visible = True
+    _call("apply_config", {"show_toolbar": True})
+    _call("refresh_menu")
+    run_on_ui(_deiconify_toolbar)
 
 
 def hide_toolbar() -> None:
-    def _do() -> None:
-        global _toolbar_visible
-        if _toolbar is not None:
-            _toolbar.withdraw()
-            _toolbar_visible = False
-            _call("apply_config", {"show_toolbar": False})
-    run_on_ui(_do)
+    global _toolbar_visible
+    _toolbar_visible = False
+    _call("apply_config", {"show_toolbar": False})
+    _call("refresh_menu")
+    run_on_ui(_withdraw_toolbar)
 
 
 def hide_toolbar_transient() -> None:
     """Hide the bar for the duration of a capture without persisting the state."""
-    def _do() -> None:
-        global _toolbar_visible
-        if _toolbar is not None:
-            _toolbar.withdraw()
-            _toolbar_visible = False
-    run_on_ui(_do)
+    global _toolbar_visible
+    _toolbar_visible = False
+    run_on_ui(_withdraw_toolbar)
 
 
 def show_toolbar_transient() -> None:
     """Re-show the bar after a capture without persisting the state."""
-    def _do() -> None:
-        global _toolbar_visible
-        if _toolbar is not None:
-            _toolbar.deiconify()
-            _toolbar.lift()
-            _toolbar.attributes("-topmost", True)
-            _toolbar_visible = True
-    run_on_ui(_do)
+    global _toolbar_visible
+    _toolbar_visible = True
+    run_on_ui(_deiconify_toolbar)
 
 
 def is_toolbar_visible() -> bool:

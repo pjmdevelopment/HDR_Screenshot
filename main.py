@@ -335,6 +335,15 @@ def _on_quit(icon, _item) -> None:
     icon.stop()
 
 
+def _refresh_tray_menu() -> None:
+    """Re-evaluate the tray menu's dynamic checkmarks (e.g. 'Show toolbar')."""
+    if _icon is not None:
+        try:
+            _icon.update_menu()
+        except Exception:
+            pass
+
+
 def _start_ui() -> None:
     """Bring up the shared UI root + floating toolbar with our handlers."""
     with _config_lock:
@@ -345,6 +354,7 @@ def _start_ui() -> None:
         "fullscreen":   _do_fullscreen,
         "open_settings": _open_settings,
         "apply_config": _apply_config,
+        "refresh_menu": _refresh_tray_menu,
     })
 
 
@@ -352,6 +362,10 @@ def _setup(icon: pystray.Icon) -> None:
     icon.visible = True
     _start_ui()
     _start_hotkey_listener()
+    # The menu was built before the UI thread started, so its "Show toolbar"
+    # checkmark was baked in as unchecked.  Now that the toolbar's real state is
+    # known, refresh the menu so the initial checkmark is correct.
+    icon.update_menu()
 
 
 def main() -> None:
