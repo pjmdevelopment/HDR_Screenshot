@@ -20,6 +20,7 @@ import ctypes
 import os
 import sys
 import threading
+import time
 from datetime import datetime
 
 import pystray
@@ -32,8 +33,12 @@ import hdr_detect
 import notification
 import settings_window
 import tonemapping
-import overlay as overlay_mod
+import ui
 from capture import MonitorInfo
+
+# Seconds to wait after hiding the toolbar so the compositor produces a
+# toolbar-free frame before we grab.
+_TOOLBAR_SETTLE_S = 0.12
 
 # ── Single-instance guard ─────────────────────────────────────────────────────
 
@@ -126,16 +131,32 @@ def _process_and_save(
     return sdr_img, notify_path
 
 
+def _hide_toolbar_for_capture() -> bool:
+    """Ensure the toolbar isn't in the shot.  On Windows 10 2004+ the bar is
+    excluded from capture, so nothing needs to happen (fast path).  Otherwise
+    withdraw it and let a toolbar-free frame settle.  Returns True if the bar
+    was withdrawn and must be restored + a fresh grab forced."""
+    if ui.toolbar_excluded_from_capture():
+        return False
+    was_visible = ui.is_toolbar_visible()
+    if was_visible:
+        ui.hide_toolbar_transient()
+        time.sleep(_TOOLBAR_SETTLE_S)   # let the toolbar-free frame settle
+    return was_visible
+
+
 def _do_fullscreen() -> None:
     """Capture the monitor under the cursor, save, copy to clipboard."""
     if not _capture_lock.acquire(blocking=False):
         return
+    was_visible = False
     try:
         with _config_lock:
             c = dict(_config)
 
+        was_visible = _hide_toolbar_for_capture()
         mon = capture.cursor_monitor()
-        frame = capture.grab(mon)
+        frame = capture.grab(mon, fresh=was_visible)
         if frame is None:
             _notify("Capture failed — is dxcam installed?", "Error")
             return
@@ -155,6 +176,8 @@ def _do_fullscreen() -> None:
     except Exception as exc:
         _notify(f"Error: {exc}", "Error")
     finally:
+        if was_visible:
+            ui.show_toolbar_transient()
         _capture_lock.release()
 
 
@@ -162,12 +185,14 @@ def _do_region() -> None:
     """Capture full frame, show region overlay on correct monitor, crop, save."""
     if not _capture_lock.acquire(blocking=False):
         return
+    was_visible = False
     try:
         with _config_lock:
             c = dict(_config)
 
+        was_visible = _hide_toolbar_for_capture()
         mon = capture.cursor_monitor()
-        frame = capture.grab(mon)
+        frame = capture.grab(mon, fresh=was_visible)
         if frame is None:
             _notify("Capture failed — is dxcam installed?", "Error")
             return
@@ -176,7 +201,9 @@ def _do_region() -> None:
             frame, method=c["tonemapping"],
             sdr_white_nits=c.get("sdr_white_nits", 250),
         )
-        region  = overlay_mod.select_region(preview, mon)
+        mode = c.get("capture_mode", "free")
+        size = (int(c.get("fixed_width", 800)), int(c.get("fixed_height", 600)))
+        region = ui.select_region(preview, mon, mode=mode, size=size)
 
         if region is None:
             return                          # user cancelled
@@ -199,6 +226,8 @@ def _do_region() -> None:
     except Exception as exc:
         _notify(f"Error: {exc}", "Error")
     finally:
+        if was_visible:
+            ui.show_toolbar_transient()
         _capture_lock.release()
 
 
@@ -208,19 +237,25 @@ def _start_hotkey_listener() -> None:
     global _hotkey_listener
 
     with _config_lock:
+        enabled   = _config.get("hotkeys_enabled", True)
         hk_full   = _config["hotkey_fullscreen"]
         hk_region = _config["hotkey_region"]
 
-    from pynput import keyboard
-
-    hotkeys = {
-        hk_full:   lambda: threading.Thread(target=_do_fullscreen, daemon=True).start(),
-        hk_region: lambda: threading.Thread(target=_do_region,     daemon=True).start(),
-    }
-
+    # Always tear down any existing listener first, then re-register only when
+    # hotkeys are enabled (toolbar + tray work regardless).
     with _hotkey_listener_lock:
         if _hotkey_listener:
             _hotkey_listener.stop()
+            _hotkey_listener = None
+        if not enabled:
+            return
+
+        from pynput import keyboard
+
+        hotkeys = {
+            hk_full:   lambda: threading.Thread(target=_do_fullscreen, daemon=True).start(),
+            hk_region: lambda: threading.Thread(target=_do_region,     daemon=True).start(),
+        }
         try:
             listener = keyboard.GlobalHotKeys(hotkeys)
             listener.start()
@@ -233,7 +268,21 @@ def _restart_hotkeys_after_save(new_cfg: dict) -> None:
     global _config
     with _config_lock:
         _config = new_cfg
+    capture.set_idle_release_secs(new_cfg.get("idle_release_secs", 120))
     _start_hotkey_listener()
+
+
+def _apply_config(partial: dict) -> None:
+    """Persist partial config changes coming from the toolbar (mode/size,
+    toolbar visibility).  Source of truth is _config."""
+    global _config
+    with _config_lock:
+        _config.update(partial)
+        snapshot = dict(_config)
+    try:
+        cfg.save(snapshot)
+    except Exception as exc:
+        print(f"[main] config save failed: {exc}")
 
 
 # ── Tray icon ─────────────────────────────────────────────────────────────────
@@ -246,21 +295,62 @@ def _load_tray_icon() -> Image.Image:
     return Image.new("RGB", (64, 64), color=(30, 30, 60))
 
 
-def _on_settings(_icon, _item) -> None:
+def _open_settings() -> None:
     with _config_lock:
         current = dict(_config)
     settings_window.open_settings(current, _restart_hotkeys_after_save)
+
+
+def _on_settings(_icon, _item) -> None:
+    _open_settings()
+
+
+def _on_new_region(_icon, _item) -> None:
+    threading.Thread(target=_do_region, daemon=True).start()
+
+
+def _on_fullscreen(_icon, _item) -> None:
+    threading.Thread(target=_do_fullscreen, daemon=True).start()
+
+
+def _on_toggle_toolbar(_icon, _item) -> None:
+    if ui.is_toolbar_visible():
+        ui.hide_toolbar()
+    else:
+        ui.show_toolbar()
 
 
 def _on_quit(icon, _item) -> None:
     with _hotkey_listener_lock:
         if _hotkey_listener:
             _hotkey_listener.stop()
+    try:
+        capture.release_all_cameras()
+    except Exception:
+        pass
+    try:
+        ui.stop()
+    except Exception:
+        pass
     icon.stop()
+
+
+def _start_ui() -> None:
+    """Bring up the shared UI root + floating toolbar with our handlers."""
+    with _config_lock:
+        snapshot = dict(_config)
+    capture.set_idle_release_secs(snapshot.get("idle_release_secs", 120))
+    ui.start(snapshot, {
+        "new_region":   _do_region,
+        "fullscreen":   _do_fullscreen,
+        "open_settings": _open_settings,
+        "apply_config": _apply_config,
+    })
 
 
 def _setup(icon: pystray.Icon) -> None:
     icon.visible = True
+    _start_ui()
     _start_hotkey_listener()
 
 
@@ -270,6 +360,11 @@ def main() -> None:
     _ensure_single_instance()
 
     menu = pystray.Menu(
+        pystray.MenuItem("New screenshot", _on_new_region),
+        pystray.MenuItem("Full screen", _on_fullscreen),
+        pystray.MenuItem("Show toolbar", _on_toggle_toolbar,
+                         checked=lambda _item: ui.is_toolbar_visible()),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem("Settings…", _on_settings),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit", _on_quit),

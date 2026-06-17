@@ -1,8 +1,13 @@
 """
 Settings window built with customtkinter.
 
+customtkinter is heavy to import, so it is loaded lazily — only when the user
+actually opens Settings — to keep app startup and idle footprint light.  The
+ctk-dependent window class is therefore built on first use inside
+``_window_class()`` rather than at module import time.
+
 Opens in its own thread so it does not conflict with the pystray message loop.
-Call `open_settings(config_dict, on_save_callback)` from anywhere.
+Call ``open_settings(config_dict, on_save_callback)`` from anywhere.
 """
 import os
 import sys
@@ -11,17 +16,11 @@ import tkinter as tk
 from tkinter import filedialog
 from typing import Callable
 
-import customtkinter as ctk
-
 import autostart
 import config as cfg
 
 _BASE_RES = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
 _ICON_PATH = os.path.join(_BASE_RES, "app.ico")
-
-# ── Appearance ────────────────────────────────────────────────────────────────
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("dark-blue")
 
 _TM_MODES = {
     "Windows (OBS-style)":   "windows",
@@ -132,172 +131,197 @@ class _HotkeyCapture:
         return "+".join(parts) if parts else ""
 
 
-# ── Settings window ───────────────────────────────────────────────────────────
+# ── Lazy ctk window class ─────────────────────────────────────────────────────
+# Built once on first Settings open so importing this module does not pull in
+# customtkinter (which is slow to import).
 
-class SettingsWindow(ctk.CTk):
-    def __init__(self, current_cfg: dict, on_save: Callable[[dict], None]) -> None:
-        super().__init__()
+_WINDOW_CLS = None
 
-        self._cfg    = dict(current_cfg)
-        self._on_save = on_save
 
-        self.title("HDR Screenshot — Settings")
-        self.resizable(False, False)
-        self.geometry("480x375")
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
+def _window_class():
+    global _WINDOW_CLS
+    if _WINDOW_CLS is not None:
+        return _WINDOW_CLS
 
-        if os.path.exists(_ICON_PATH):
-            try:
-                self.iconbitmap(_ICON_PATH)
-            except Exception:
-                pass
+    import customtkinter as ctk
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("dark-blue")
 
-        self._build_ui()
+    class SettingsWindow(ctk.CTk):
+        def __init__(self, current_cfg: dict, on_save: Callable[[dict], None]) -> None:
+            super().__init__()
 
-    # ── UI construction ───────────────────────────────────────────────────────
+            self._cfg    = dict(current_cfg)
+            self._on_save = on_save
 
-    def _build_ui(self) -> None:
-        pad = {"padx": 16, "pady": 6}
+            self.title("HDR Screenshot — Settings")
+            self.resizable(False, False)
+            self.geometry("480x420")
+            self.protocol("WM_DELETE_WINDOW", self.destroy)
 
-        # ── Save folder ───────────────────────────────────────────────────────
-        ctk.CTkLabel(self, text="Save folder", anchor="w").grid(
-            row=0, column=0, sticky="w", **pad)
+            if os.path.exists(_ICON_PATH):
+                try:
+                    self.iconbitmap(_ICON_PATH)
+                except Exception:
+                    pass
 
-        self._folder_var = tk.StringVar(value=self._cfg["save_folder"])
-        folder_entry = ctk.CTkEntry(self, textvariable=self._folder_var, width=300)
-        folder_entry.grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=6)
+            self._build_ui()
 
-        ctk.CTkButton(self, text="Browse…", width=80,
-                      command=self._browse_folder).grid(
-            row=0, column=2, padx=(0, 16), pady=6)
+        # ── UI construction ─────────────────────────────────────────────────
 
-        # ── Tone mapping ──────────────────────────────────────────────────────
-        ctk.CTkLabel(self, text="Tone mapping", anchor="w").grid(
-            row=1, column=0, sticky="w", **pad)
+        def _build_ui(self) -> None:
+            pad = {"padx": 16, "pady": 6}
 
-        self._tm_var = tk.StringVar(value=_TM_MODES_R[self._cfg["tonemapping"]])
-        ctk.CTkOptionMenu(self, variable=self._tm_var,
-                          values=list(_TM_MODES.keys()), width=300).grid(
-            row=1, column=1, sticky="ew", padx=(0, 4), pady=6)
+            # ── Save folder ─────────────────────────────────────────────────
+            ctk.CTkLabel(self, text="Save folder", anchor="w").grid(
+                row=0, column=0, sticky="w", **pad)
 
-        # ── SDR brightness ────────────────────────────────────────────────────
-        ctk.CTkLabel(self, text="SDR brightness (nits)", anchor="w").grid(
-            row=2, column=0, sticky="w", **pad)
+            self._folder_var = tk.StringVar(value=self._cfg["save_folder"])
+            folder_entry = ctk.CTkEntry(self, textvariable=self._folder_var, width=300)
+            folder_entry.grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=6)
 
-        nits_frame = ctk.CTkFrame(self, fg_color="transparent")
-        nits_frame.grid(row=2, column=1, columnspan=2, sticky="ew",
-                        padx=(0, 4), pady=6)
+            ctk.CTkButton(self, text="Browse…", width=80,
+                          command=self._browse_folder).grid(
+                row=0, column=2, padx=(0, 16), pady=6)
 
-        self._nits_var = tk.IntVar(
-            value=int(self._cfg.get("sdr_white_nits", 250))
-        )
-        self._nits_lbl = ctk.CTkLabel(
-            nits_frame,
-            text="%d" % self._nits_var.get(),
-            width=40, anchor="e",
-        )
-        self._nits_lbl.pack(side="right")
+            # ── Tone mapping ────────────────────────────────────────────────
+            ctk.CTkLabel(self, text="Tone mapping", anchor="w").grid(
+                row=1, column=0, sticky="w", **pad)
 
-        def _on_nits(val):
-            v = int(round(float(val) / 10) * 10)
-            self._nits_var.set(v)
-            self._nits_lbl.configure(text="%d" % v)
+            self._tm_var = tk.StringVar(value=_TM_MODES_R[self._cfg["tonemapping"]])
+            ctk.CTkOptionMenu(self, variable=self._tm_var,
+                              values=list(_TM_MODES.keys()), width=300).grid(
+                row=1, column=1, sticky="ew", padx=(0, 4), pady=6)
 
-        ctk.CTkSlider(
-            nits_frame,
-            from_=160, to=480,
-            variable=self._nits_var,
-            command=_on_nits,
-            width=260,
-        ).pack(side="left", fill="x", expand=True)
+            # ── SDR brightness ──────────────────────────────────────────────
+            ctk.CTkLabel(self, text="SDR brightness (nits)", anchor="w").grid(
+                row=2, column=0, sticky="w", **pad)
 
-        # ── Hotkeys ───────────────────────────────────────────────────────────
-        ctk.CTkLabel(self, text="Hotkey — Full screen", anchor="w").grid(
-            row=3, column=0, sticky="w", **pad)
+            nits_frame = ctk.CTkFrame(self, fg_color="transparent")
+            nits_frame.grid(row=2, column=1, columnspan=2, sticky="ew",
+                            padx=(0, 4), pady=6)
 
-        self._hk_full_var = tk.StringVar(
-            value=_format_hotkey(self._cfg["hotkey_fullscreen"]))
-        self._hk_full_lbl = ctk.CTkLabel(self, textvariable=self._hk_full_var,
-                                          anchor="w", width=200)
-        self._hk_full_lbl.grid(row=3, column=1, sticky="w", padx=(0, 4), pady=6)
+            self._nits_var = tk.IntVar(
+                value=int(self._cfg.get("sdr_white_nits", 250))
+            )
+            self._nits_lbl = ctk.CTkLabel(
+                nits_frame,
+                text="%d" % self._nits_var.get(),
+                width=40, anchor="e",
+            )
+            self._nits_lbl.pack(side="right")
 
-        ctk.CTkButton(self, text="Change", width=80,
-                      command=lambda: self._start_capture("fullscreen")).grid(
-            row=3, column=2, padx=(0, 16), pady=6)
+            def _on_nits(val):
+                v = int(round(float(val) / 10) * 10)
+                self._nits_var.set(v)
+                self._nits_lbl.configure(text="%d" % v)
 
-        ctk.CTkLabel(self, text="Hotkey — Region", anchor="w").grid(
-            row=4, column=0, sticky="w", **pad)
+            ctk.CTkSlider(
+                nits_frame,
+                from_=160, to=480,
+                variable=self._nits_var,
+                command=_on_nits,
+                width=260,
+            ).pack(side="left", fill="x", expand=True)
 
-        self._hk_region_var = tk.StringVar(
-            value=_format_hotkey(self._cfg["hotkey_region"]))
-        self._hk_region_lbl = ctk.CTkLabel(self, textvariable=self._hk_region_var,
-                                             anchor="w", width=200)
-        self._hk_region_lbl.grid(row=4, column=1, sticky="w", padx=(0, 4), pady=6)
+            # ── Hotkeys ─────────────────────────────────────────────────────
+            ctk.CTkLabel(self, text="Hotkey — Full screen", anchor="w").grid(
+                row=3, column=0, sticky="w", **pad)
 
-        ctk.CTkButton(self, text="Change", width=80,
-                      command=lambda: self._start_capture("region")).grid(
-            row=4, column=2, padx=(0, 16), pady=6)
+            self._hk_full_var = tk.StringVar(
+                value=_format_hotkey(self._cfg["hotkey_fullscreen"]))
+            self._hk_full_lbl = ctk.CTkLabel(self, textvariable=self._hk_full_var,
+                                              anchor="w", width=200)
+            self._hk_full_lbl.grid(row=3, column=1, sticky="w", padx=(0, 4), pady=6)
 
-        # ── Start with Windows ────────────────────────────────────────────────
-        self._autostart_var = tk.BooleanVar(value=autostart.is_enabled())
-        ctk.CTkCheckBox(self, text="Start with Windows",
-                        variable=self._autostart_var).grid(
-            row=5, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
+            ctk.CTkButton(self, text="Change", width=80,
+                          command=lambda: self._start_capture("fullscreen")).grid(
+                row=3, column=2, padx=(0, 16), pady=6)
 
-        # ── Buttons ───────────────────────────────────────────────────────────
-        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=6, column=0, columnspan=3, pady=(16, 16))
+            ctk.CTkLabel(self, text="Hotkey — Region", anchor="w").grid(
+                row=4, column=0, sticky="w", **pad)
 
-        ctk.CTkButton(btn_frame, text="Save", width=120,
-                      command=self._save).pack(side="left", padx=8)
-        ctk.CTkButton(btn_frame, text="Cancel", width=120, fg_color="gray40",
-                      command=self.destroy).pack(side="left", padx=8)
+            self._hk_region_var = tk.StringVar(
+                value=_format_hotkey(self._cfg["hotkey_region"]))
+            self._hk_region_lbl = ctk.CTkLabel(self, textvariable=self._hk_region_var,
+                                                 anchor="w", width=200)
+            self._hk_region_lbl.grid(row=4, column=1, sticky="w", padx=(0, 4), pady=6)
 
-        self.columnconfigure(1, weight=1)
+            ctk.CTkButton(self, text="Change", width=80,
+                          command=lambda: self._start_capture("region")).grid(
+                row=4, column=2, padx=(0, 16), pady=6)
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+            # ── Enable global hotkeys ───────────────────────────────────────
+            self._hotkeys_var = tk.BooleanVar(
+                value=bool(self._cfg.get("hotkeys_enabled", True)))
+            ctk.CTkCheckBox(self, text="Enable global hotkeys",
+                            variable=self._hotkeys_var).grid(
+                row=5, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
 
-    def _browse_folder(self) -> None:
-        folder = filedialog.askdirectory(
-            initialdir=self._folder_var.get(),
-            title="Select save folder",
-            parent=self,
-        )
-        if folder:
-            self._folder_var.set(folder)
+            # ── Start with Windows ──────────────────────────────────────────
+            self._autostart_var = tk.BooleanVar(value=autostart.is_enabled())
+            ctk.CTkCheckBox(self, text="Start with Windows",
+                            variable=self._autostart_var).grid(
+                row=6, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
 
-    def _start_capture(self, which: str) -> None:
-        """Begin listening for a new hotkey combo for *which* ('fullscreen'|'region')."""
-        var = self._hk_full_var if which == "fullscreen" else self._hk_region_var
-        var.set("Press combo…")
-        self.update_idletasks()
+            # ── Buttons ─────────────────────────────────────────────────────
+            btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+            btn_frame.grid(row=7, column=0, columnspan=3, pady=(16, 16))
 
-        def on_done(combo: str) -> None:
-            display = _format_hotkey(combo)
-            # Schedule UI update on the Tk main thread
-            self.after(0, lambda: var.set(display))
-            if which == "fullscreen":
-                self._cfg["hotkey_fullscreen"] = combo
+            ctk.CTkButton(btn_frame, text="Save", width=120,
+                          command=self._save).pack(side="left", padx=8)
+            ctk.CTkButton(btn_frame, text="Cancel", width=120, fg_color="gray40",
+                          command=self.destroy).pack(side="left", padx=8)
+
+            self.columnconfigure(1, weight=1)
+
+        # ── Helpers ─────────────────────────────────────────────────────────
+
+        def _browse_folder(self) -> None:
+            folder = filedialog.askdirectory(
+                initialdir=self._folder_var.get(),
+                title="Select save folder",
+                parent=self,
+            )
+            if folder:
+                self._folder_var.set(folder)
+
+        def _start_capture(self, which: str) -> None:
+            """Begin listening for a new hotkey combo for *which*."""
+            var = self._hk_full_var if which == "fullscreen" else self._hk_region_var
+            var.set("Press combo…")
+            self.update_idletasks()
+
+            def on_done(combo: str) -> None:
+                display = _format_hotkey(combo)
+                # Schedule UI update on the Tk main thread
+                self.after(0, lambda: var.set(display))
+                if which == "fullscreen":
+                    self._cfg["hotkey_fullscreen"] = combo
+                else:
+                    self._cfg["hotkey_region"] = combo
+
+            capture = _HotkeyCapture(on_done)
+            threading.Thread(target=capture.start, daemon=True).start()
+
+        def _save(self) -> None:
+            self._cfg["save_folder"]     = self._folder_var.get()
+            self._cfg["save_mode"]       = "sdr"
+            self._cfg["tonemapping"]     = _TM_MODES[self._tm_var.get()]
+            self._cfg["sdr_white_nits"]  = int(self._nits_var.get())
+            self._cfg["hotkeys_enabled"] = bool(self._hotkeys_var.get())
+            cfg.save(self._cfg)
+
+            if self._autostart_var.get():
+                autostart.enable()
             else:
-                self._cfg["hotkey_region"] = combo
+                autostart.disable()
 
-        capture = _HotkeyCapture(on_done)
-        threading.Thread(target=capture.start, daemon=True).start()
+            self._on_save(self._cfg)
+            self.destroy()
 
-    def _save(self) -> None:
-        self._cfg["save_folder"]    = self._folder_var.get()
-        self._cfg["save_mode"]      = "sdr"
-        self._cfg["tonemapping"]    = _TM_MODES[self._tm_var.get()]
-        self._cfg["sdr_white_nits"] = int(self._nits_var.get())
-        cfg.save(self._cfg)
-
-        if self._autostart_var.get():
-            autostart.enable()
-        else:
-            autostart.disable()
-
-        self._on_save(self._cfg)
-        self.destroy()
+    _WINDOW_CLS = SettingsWindow
+    return _WINDOW_CLS
 
 
 # ── Public entry point ────────────────────────────────────────────────────────
@@ -307,10 +331,12 @@ def open_settings(current_cfg: dict, on_save: Callable[[dict], None]) -> None:
     Open the settings window in a dedicated daemon thread.
 
     Designed to be called from a pystray menu callback (which runs in the
-    pystray thread) without blocking it.
+    pystray thread) without blocking it.  customtkinter is imported here on
+    first use, not at module load.
     """
     def _run():
-        win = SettingsWindow(current_cfg, on_save)
+        cls = _window_class()
+        win = cls(current_cfg, on_save)
         win.mainloop()
 
     threading.Thread(target=_run, daemon=True).start()

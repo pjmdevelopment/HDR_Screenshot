@@ -15,6 +15,7 @@ import gc
 import time
 import ctypes
 import ctypes.wintypes as wt
+import threading
 from dataclasses import dataclass
 
 import numpy as np
@@ -150,6 +151,48 @@ def _release_cam(cam: object) -> None:
         pass
 
 
+# ── Idle camera release ───────────────────────────────────────────────────────
+# Cached cameras hold a D3D11 device + duplication + staging texture per monitor.
+# To keep idle GPU/RAM low we drop them after a period of inactivity; the next
+# grab() re-creates them lazily.  Default timeout lives in config.
+
+_cam_lock = threading.Lock()       # serialises camera use vs. idle release
+_idle_release_secs: float = 120.0
+_idle_timer: "threading.Timer | None" = None
+_timer_lock = threading.Lock()     # guards the _idle_timer object only
+
+
+def set_idle_release_secs(secs: float) -> None:
+    """Configure the inactivity timeout (0 disables idle release)."""
+    global _idle_release_secs
+    _idle_release_secs = float(secs)
+
+
+def release_all_cameras() -> None:
+    """Release every cached camera (called by the idle timer or on shutdown).
+    Holds _cam_lock so it can never free a camera mid-grab."""
+    with _cam_lock:
+        cams = list(_cameras.items())
+        _cameras.clear()
+        for _idx, entry in cams:
+            _release_cam(entry[0])
+    if cams:
+        print(f"[capture] released {len(cams)} idle camera(s)")
+
+
+def _touch_idle_timer() -> None:
+    """(Re)arm the inactivity timer after a successful grab."""
+    global _idle_timer
+    if _idle_release_secs <= 0:
+        return
+    with _timer_lock:
+        if _idle_timer is not None:
+            _idle_timer.cancel()
+        _idle_timer = threading.Timer(_idle_release_secs, release_all_cameras)
+        _idle_timer.daemon = True
+        _idle_timer.start()
+
+
 def _probe_dxcam(output_idx: int, attempts: int = 15) -> "tuple | None":
     """Create and probe a dxcam BGRA camera. Returns (cam, False) or None."""
     import dxcam
@@ -225,9 +268,17 @@ def _get_camera(win32_idx: int) -> "tuple[object, bool]":
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def grab(monitor: MonitorInfo | None = None) -> "np.ndarray | None":
+def grab(monitor: MonitorInfo | None = None,
+         fresh: bool = False) -> "np.ndarray | None":
     """
     Capture *monitor* (defaults to the one under the cursor).
+
+    Args:
+        monitor: target monitor (defaults to the one under the cursor).
+        fresh:   force a brand-new frame instead of accepting a cached one.
+                 Used after the toolbar self-hides so the bar is not in the
+                 shot — the FP16 path caches the last frame on a static
+                 desktop, which we must invalidate here.
 
     Returns float32 BGRA:
       HDR path  — linear scRGB values, may exceed 1.0
@@ -241,40 +292,54 @@ def grab(monitor: MonitorInfo | None = None) -> "np.ndarray | None":
     if not _win32_to_dxgi:
         _build_dxgi_map(get_monitors())
 
-    cam, is_hdr = _get_camera(monitor.idx)
-    if cam is None and monitor.idx != 0:
-        cam, is_hdr = _get_camera(0)
-    if cam is None:
-        return None
-
-    for _ in range(20):
-        try:
-            frame = cam.grab()   # type: ignore[union-attr]
-            if frame is None:
-                time.sleep(0.05)
-                continue
-
-            if is_hdr:
-                # FP16Capture already returns float32 BGRA (scRGB linear)
-                return frame
-            else:
-                # dxcam returns uint8 BGRA → normalise to float32 [0,1]
-                return frame.astype(np.float32) / 255.0
-
-        except AccessLostError:
-            # Display mode change: drop this camera, next call will reinit
-            print(f"[capture] Monitor {monitor.idx}: access lost, reinitialising")
-            entry = _cameras.pop(monitor.idx, None)
-            if entry:
-                _release_cam(entry[0])
+    # _cam_lock serialises the whole camera-use section against the idle
+    # release timer so a camera can never be freed while we are grabbing.
+    with _cam_lock:
+        cam, is_hdr = _get_camera(monitor.idx)
+        if cam is None and monitor.idx != 0:
+            cam, is_hdr = _get_camera(0)
+        if cam is None:
             return None
 
-        except Exception as exc:
-            print(f"[capture] grab error on monitor {monitor.idx}: {exc}")
-            entry = _cameras.pop(monitor.idx, None)
-            if entry:
-                _release_cam(entry[0])
-            return None
+        if fresh:
+            # Drop any cached frame so a static-desktop timeout cannot return a
+            # stale frame containing the toolbar; the withdraw itself is a
+            # desktop change, so a genuinely new frame will arrive shortly.
+            try:
+                cam._last_frame = None       # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+        attempts = 40 if fresh else 20
+        for _ in range(attempts):
+            try:
+                frame = cam.grab()   # type: ignore[union-attr]
+                if frame is None:
+                    time.sleep(0.03 if fresh else 0.05)
+                    continue
+
+                _touch_idle_timer()
+                if is_hdr:
+                    # FP16Capture already returns float32 BGRA (scRGB linear)
+                    return frame
+                else:
+                    # dxcam returns uint8 BGRA → normalise to float32 [0,1]
+                    return frame.astype(np.float32) / 255.0
+
+            except AccessLostError:
+                # Display mode change: drop this camera, next call will reinit
+                print(f"[capture] Monitor {monitor.idx}: access lost, reinitialising")
+                entry = _cameras.pop(monitor.idx, None)
+                if entry:
+                    _release_cam(entry[0])
+                return None
+
+            except Exception as exc:
+                print(f"[capture] grab error on monitor {monitor.idx}: {exc}")
+                entry = _cameras.pop(monitor.idx, None)
+                if entry:
+                    _release_cam(entry[0])
+                return None
 
     print(f"[capture] Monitor {monitor.idx}: grab returned None after retries")
     return None

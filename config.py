@@ -1,4 +1,4 @@
-"""Config management — loads/saves config.json in %LOCALAPPDATA%\HDRScreenshotTool\."""
+"""Config management — loads/saves config.json in %LOCALAPPDATA%\\HDRScreenshotTool\\."""
 import json
 import os
 import sys
@@ -24,6 +24,12 @@ DEFAULTS: dict = {
     "sdr_white_nits": 250,        # SDR reference white in nits (160–480); higher = darker output
     "hotkey_fullscreen": "<ctrl>+<shift>+h",
     "hotkey_region": "<ctrl>+<shift>+r",
+    "hotkeys_enabled": True,      # global hotkeys on/off (toolbar/tray work regardless)
+    "show_toolbar": True,         # floating toolbar visible — remembered across launches
+    "capture_mode": "free",       # region select mode: "free" (drag) | "fixed" (stamp)
+    "fixed_width": 800,           # stamp-mode box width  (px)
+    "fixed_height": 600,          # stamp-mode box height (px)
+    "idle_release_secs": 120,     # release cached cameras after N s idle (0 = never)
 }
 
 

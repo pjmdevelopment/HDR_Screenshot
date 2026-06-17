@@ -1,11 +1,17 @@
 # HDR Screenshot Tool — Python dependencies
 # Install with:  pip install -r requirements.txt
+#
+# Tip: pin exact versions (e.g. `numpy==2.1.3`) for reproducible, supply-chain-
+# safe builds.  Run `pip freeze` after a known-good install to capture them.
 
 dxcam           # DXGI Desktop Duplication API — HDR FP16 capture
+comtypes        # COM interop used by the fp16 capture path (dxgi_capture)
 numpy           # tone-mapping math
-Pillow          # image processing, SDR PNG save, tray icon loading
-pynput          # global hotkeys
+Pillow          # image processing, SDR PNG save, tray icon + toast thumbnails
+pynput          # global hotkeys (optional at runtime) + hotkey capture
 pystray         # system tray icon
-customtkinter   # settings UI
+customtkinter   # settings UI (lazily imported on first open)
 # imageio        # no longer needed — 16-bit PNG is now written via stdlib
+# Notifications are now rendered in-process (Tkinter) — powershell.exe/WinRT
+# are no longer used.
 pyinstaller     # packaging — run:  pyinstaller --onefile --windowed --icon app.ico main.py
