@@ -176,7 +176,7 @@ def _window_class():
             ctk.CTkLabel(self, text="Save folder", anchor="w").grid(
                 row=0, column=0, sticky="w", **pad)
 
-            self._folder_var = tk.StringVar(value=self._cfg["save_folder"])
+            self._folder_var = tk.StringVar(master=self, value=self._cfg["save_folder"])
             folder_entry = ctk.CTkEntry(self, textvariable=self._folder_var, width=300)
             folder_entry.grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=6)
 
@@ -188,7 +188,7 @@ def _window_class():
             ctk.CTkLabel(self, text="Tone mapping", anchor="w").grid(
                 row=1, column=0, sticky="w", **pad)
 
-            self._tm_var = tk.StringVar(value=_TM_MODES_R[self._cfg["tonemapping"]])
+            self._tm_var = tk.StringVar(master=self, value=_TM_MODES_R[self._cfg["tonemapping"]])
             ctk.CTkOptionMenu(self, variable=self._tm_var,
                               values=list(_TM_MODES.keys()), width=300).grid(
                 row=1, column=1, sticky="ew", padx=(0, 4), pady=6)
@@ -202,7 +202,7 @@ def _window_class():
                             padx=(0, 4), pady=6)
 
             self._nits_var = tk.IntVar(
-                value=int(self._cfg.get("sdr_white_nits", 250))
+                master=self, value=int(self._cfg.get("sdr_white_nits", 250))
             )
             self._nits_lbl = ctk.CTkLabel(
                 nits_frame,
@@ -229,7 +229,7 @@ def _window_class():
                 row=3, column=0, sticky="w", **pad)
 
             self._hk_full_var = tk.StringVar(
-                value=_format_hotkey(self._cfg["hotkey_fullscreen"]))
+                master=self, value=_format_hotkey(self._cfg["hotkey_fullscreen"]))
             self._hk_full_lbl = ctk.CTkLabel(self, textvariable=self._hk_full_var,
                                               anchor="w", width=200)
             self._hk_full_lbl.grid(row=3, column=1, sticky="w", padx=(0, 4), pady=6)
@@ -242,7 +242,7 @@ def _window_class():
                 row=4, column=0, sticky="w", **pad)
 
             self._hk_region_var = tk.StringVar(
-                value=_format_hotkey(self._cfg["hotkey_region"]))
+                master=self, value=_format_hotkey(self._cfg["hotkey_region"]))
             self._hk_region_lbl = ctk.CTkLabel(self, textvariable=self._hk_region_var,
                                                  anchor="w", width=200)
             self._hk_region_lbl.grid(row=4, column=1, sticky="w", padx=(0, 4), pady=6)
@@ -253,13 +253,13 @@ def _window_class():
 
             # ── Enable global hotkeys ───────────────────────────────────────
             self._hotkeys_var = tk.BooleanVar(
-                value=bool(self._cfg.get("hotkeys_enabled", True)))
+                master=self, value=bool(self._cfg.get("hotkeys_enabled", True)))
             ctk.CTkCheckBox(self, text="Enable global hotkeys",
                             variable=self._hotkeys_var).grid(
                 row=5, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
 
             # ── Start with Windows ──────────────────────────────────────────
-            self._autostart_var = tk.BooleanVar(value=autostart.is_enabled())
+            self._autostart_var = tk.BooleanVar(master=self, value=autostart.is_enabled())
             ctk.CTkCheckBox(self, text="Start with Windows",
                             variable=self._autostart_var).grid(
                 row=6, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
