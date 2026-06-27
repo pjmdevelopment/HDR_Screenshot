@@ -23,9 +23,10 @@ _BASE_RES = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(o
 _ICON_PATH = os.path.join(_BASE_RES, "app.ico")
 
 _TM_MODES = {
-    "Windows (OBS-style)":   "windows",
-    "ACES (filmic) [test]":  "aces",
-    "Reinhard (photo) [test]": "reinhard",
+    "Windows (OBS-style)":          "windows",
+    "Windows + highlight roll-off": "windows_rolloff",
+    "ACES (filmic) [test]":         "aces",
+    "Reinhard (photo) [test]":      "reinhard",
 }
 
 _TM_MODES_R = {v: k for k, v in _TM_MODES.items()}

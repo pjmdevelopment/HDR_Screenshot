@@ -66,6 +66,39 @@ def _windows_hdr(rgb: np.ndarray, sdr_white_nits: float = 250.0) -> np.ndarray:
     return _linear_to_srgb(normalized)
 
 
+def _windows_rolloff(rgb: np.ndarray, sdr_white_nits: float = 250.0,
+                     knee: float = 0.8) -> np.ndarray:
+    """
+    Windows / OBS-style mapping **with a highlight roll-off** instead of a hard
+    clip.
+
+    Like ``_windows_hdr`` it divides by the SDR paper-white reference so SDR
+    content below the *knee* is preserved exactly.  But where the plain Windows
+    operator clips everything above the knee to flat white, this rolls the
+    highlights smoothly into the top of the range, so structure inside bright HDR
+    highlights (skies, the sun, specular glints) is kept rather than blown out.
+
+    The shoulder is a hyperbolic (Reinhard-style) curve that joins the linear
+    section with matching slope at the knee and approaches display white
+    asymptotically — monotonic, no seam, no overshoot:
+
+      • n ≤ knee → identity (SDR content untouched)
+      • n > knee → 1 − (1−k) / (1 + (n−k)/(1−k))
+
+    Recovering highlight detail necessarily costs a little top-end brightness
+    (paper-white maps slightly below pure white); that is the deliberate trade
+    versus the OBS-exact ``windows`` mode.
+    """
+    sdr_ref = sdr_white_nits / 80.0
+    n = rgb / sdr_ref                     # SDR paper-white sits at 1.0
+    ks = float(knee)
+
+    out = n.copy()
+    hi = n > ks
+    out[hi] = 1.0 - (1.0 - ks) / (1.0 + (n[hi] - ks) / (1.0 - ks))
+    return _linear_to_srgb(np.clip(out, 0.0, 1.0))
+
+
 def _aces(rgb: np.ndarray) -> np.ndarray:
     """
     ACES filmic tone mapping with auto-exposure.
@@ -162,7 +195,9 @@ def to_sdr(
     rgb = frame[:, :, 2::-1].astype(np.float32)    # BGR→RGB, drop alpha
 
     if rgb.max() > 1.0:
-        if method == "windows" or method not in _OPERATORS:
+        if method == "windows_rolloff":
+            rgb = _windows_rolloff(rgb, sdr_white_nits=sdr_white_nits)
+        elif method == "windows" or method not in _OPERATORS:
             rgb = _windows_hdr(rgb, sdr_white_nits=sdr_white_nits)
         else:
             rgb = _OPERATORS[method](rgb)
