@@ -24,6 +24,7 @@ Public API
     select_region(preview, mon, …)  — blocking region pick (free or fixed/stamp)
     toast(title, body, image_path)  — fast in-process notification
     show_toolbar() / hide_toolbar() / is_toolbar_visible()
+    open_viewer(image, …)           — open the annotation editor on the UI thread
     is_running()                    — True once the root is alive
     stop()                          — tear everything down
 """
@@ -413,6 +414,31 @@ def select_region(
     run_on_ui(_build)
     done.wait()
     return result[0]
+
+
+# ── Screenshot editor ─────────────────────────────────────────────────────────
+
+def exclude_from_capture(window: tk.Misc) -> bool:
+    """Public wrapper: hide *window* from screen capture (Windows 10 2004+)."""
+    return _exclude_from_capture(window)
+
+
+def open_viewer(image, save_folder: str, suggested_name: str = "screenshot",
+                jpg_quality: int = 92) -> None:
+    """Open the annotation editor for *image* (a PIL Image).  Safe to call from
+    any thread — the window is built on the UI thread.  No-op if the root is not
+    running yet."""
+    if not is_running():
+        return
+    import viewer
+
+    def _build() -> None:
+        viewer.create_viewer(
+            _root, image, save_folder=save_folder,
+            suggested_name=suggested_name, jpg_quality=jpg_quality,
+            exclude_fn=_exclude_from_capture,
+        )
+    run_on_ui(_build)
 
 
 # ── In-app toast ──────────────────────────────────────────────────────────────

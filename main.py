@@ -131,6 +131,21 @@ def _process_and_save(
     return sdr_img, notify_path
 
 
+def _open_preview(frame, c: dict) -> None:
+    """Tone-map *frame* and hand it to the annotation editor instead of saving
+    immediately (used when post_capture == 'preview')."""
+    img = tonemapping.to_sdr(
+        frame, method=c["tonemapping"],
+        sdr_white_nits=c.get("sdr_white_nits", 250),
+    )
+    ui.open_viewer(
+        img,
+        save_folder=c["save_folder"],
+        suggested_name=f"hdr_sdr_{_timestamp()}",
+        jpg_quality=int(c.get("jpg_quality", 92)),
+    )
+
+
 def _hide_toolbar_for_capture() -> bool:
     """Ensure the toolbar isn't in the shot.  On Windows 10 2004+ the bar is
     excluded from capture, so nothing needs to happen (fast path).  Otherwise
@@ -159,6 +174,10 @@ def _do_fullscreen() -> None:
         frame = capture.grab(mon, fresh=was_visible)
         if frame is None:
             _notify("Capture failed — is dxcam installed?", "Error")
+            return
+
+        if c.get("post_capture", "instant") == "preview":
+            _open_preview(frame, c)
             return
 
         sdr_img, notify_path = _process_and_save(
@@ -210,6 +229,10 @@ def _do_region() -> None:
 
         x1, y1, x2, y2 = region
         cropped = frame[y1:y2, x1:x2]
+
+        if c.get("post_capture", "instant") == "preview":
+            _open_preview(cropped, c)
+            return
 
         sdr_img, notify_path = _process_and_save(
             cropped, mon, c["save_folder"], c["save_mode"], c["tonemapping"],

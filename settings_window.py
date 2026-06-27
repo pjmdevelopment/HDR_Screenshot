@@ -30,6 +30,13 @@ _TM_MODES = {
 
 _TM_MODES_R = {v: k for k, v in _TM_MODES.items()}
 
+_PC_MODES = {
+    "Save & copy instantly": "instant",
+    "Open editor first":     "preview",
+}
+
+_PC_MODES_R = {v: k for k, v in _PC_MODES.items()}
+
 
 def _format_hotkey(hk: str) -> str:
     """'<ctrl>+<shift>+h'  →  'Ctrl+Shift+H'"""
@@ -157,7 +164,7 @@ def _window_class():
             self.title("HDR Screenshot — Settings")
             self.resizable(False, False)
             # Centre on the screen the window opens on.
-            w, h = 480, 420
+            w, h = 480, 470
             sw = self.winfo_screenwidth()
             sh = self.winfo_screenheight()
             x = max(0, (sw - w) // 2)
@@ -264,15 +271,26 @@ def _window_class():
                             variable=self._hotkeys_var).grid(
                 row=5, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
 
+            # ── After capture ───────────────────────────────────────────────
+            ctk.CTkLabel(self, text="After capture", anchor="w").grid(
+                row=6, column=0, sticky="w", **pad)
+
+            self._pc_var = tk.StringVar(
+                master=self,
+                value=_PC_MODES_R[self._cfg.get("post_capture", "instant")])
+            ctk.CTkOptionMenu(self, variable=self._pc_var,
+                              values=list(_PC_MODES.keys()), width=300).grid(
+                row=6, column=1, columnspan=2, sticky="ew", padx=(0, 16), pady=6)
+
             # ── Start with Windows ──────────────────────────────────────────
             self._autostart_var = tk.BooleanVar(master=self, value=autostart.is_enabled())
             ctk.CTkCheckBox(self, text="Start with Windows",
                             variable=self._autostart_var).grid(
-                row=6, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
+                row=7, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
 
             # ── Buttons ─────────────────────────────────────────────────────
             btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-            btn_frame.grid(row=7, column=0, columnspan=3, pady=(16, 16))
+            btn_frame.grid(row=8, column=0, columnspan=3, pady=(16, 16))
 
             ctk.CTkButton(btn_frame, text="Save", width=120,
                           command=self._save).pack(side="left", padx=8)
@@ -316,6 +334,7 @@ def _window_class():
             self._cfg["tonemapping"]     = _TM_MODES[self._tm_var.get()]
             self._cfg["sdr_white_nits"]  = int(self._nits_var.get())
             self._cfg["hotkeys_enabled"] = bool(self._hotkeys_var.get())
+            self._cfg["post_capture"]    = _PC_MODES[self._pc_var.get()]
             cfg.save(self._cfg)
 
             if self._autostart_var.get():

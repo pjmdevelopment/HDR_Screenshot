@@ -30,6 +30,8 @@ DEFAULTS: dict = {
     "fixed_width": 800,           # stamp-mode box width  (px)
     "fixed_height": 600,          # stamp-mode box height (px)
     "idle_release_secs": 120,     # release cached cameras after N s idle (0 = never)
+    "post_capture": "instant",    # after capture: "instant" (save+copy) | "preview" (editor)
+    "jpg_quality": 92,            # default JPEG quality used by the editor's Save
 }
 
 
