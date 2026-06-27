@@ -19,7 +19,7 @@ CONFIG_PATH = os.path.join(_BASE_DIR, "config.json")
 
 DEFAULTS: dict = {
     "save_folder": os.path.join(os.path.expanduser("~"), "Pictures", "HDRScreenshots"),
-    "save_mode": "sdr",           # фіксовано sdr; hdr/both — в наступних версіях
+    "save_mode": "sdr",           # "sdr" (PNG/JPG) | "hdr" (AVIF PQ/Rec.2020) | "both"
     "tonemapping": "windows",     # "windows" (рекомендовано) | "aces" | "reinhard"
     "sdr_white_nits": 250,        # SDR reference white in nits (160–480); higher = darker output
     "hotkey_fullscreen": "<ctrl>+<shift>+h",

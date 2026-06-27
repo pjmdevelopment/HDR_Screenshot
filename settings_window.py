@@ -38,6 +38,14 @@ _PC_MODES = {
 
 _PC_MODES_R = {v: k for k, v in _PC_MODES.items()}
 
+_SM_MODES = {
+    "SDR image (PNG / JPG)": "sdr",
+    "HDR (AVIF)":            "hdr",
+    "SDR + HDR":             "both",
+}
+
+_SM_MODES_R = {v: k for k, v in _SM_MODES.items()}
+
 
 def _format_hotkey(hk: str) -> str:
     """'<ctrl>+<shift>+h'  →  'Ctrl+Shift+H'"""
@@ -165,7 +173,7 @@ def _window_class():
             self.title("HDR Screenshot — Settings")
             self.resizable(False, False)
             # Centre on the screen the window opens on.
-            w, h = 480, 515
+            w, h = 480, 560
             sw = self.winfo_screenwidth()
             sh = self.winfo_screenheight()
             x = max(0, (sw - w) // 2)
@@ -304,15 +312,27 @@ def _window_class():
                               values=list(_PC_MODES.keys()), width=300).grid(
                 row=7, column=1, columnspan=2, sticky="ew", padx=(0, 16), pady=6)
 
+            # ── Save format ─────────────────────────────────────────────────
+            ctk.CTkLabel(self, text="Save format", anchor="w").grid(
+                row=8, column=0, sticky="w", **pad)
+
+            self._sm_var = tk.StringVar(
+                master=self,
+                value=_SM_MODES_R.get(self._cfg.get("save_mode", "sdr"),
+                                      _SM_MODES_R["sdr"]))
+            ctk.CTkOptionMenu(self, variable=self._sm_var,
+                              values=list(_SM_MODES.keys()), width=300).grid(
+                row=8, column=1, columnspan=2, sticky="ew", padx=(0, 16), pady=6)
+
             # ── Start with Windows ──────────────────────────────────────────
             self._autostart_var = tk.BooleanVar(master=self, value=autostart.is_enabled())
             ctk.CTkCheckBox(self, text="Start with Windows",
                             variable=self._autostart_var).grid(
-                row=8, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
+                row=9, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
 
             # ── Buttons ─────────────────────────────────────────────────────
             btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-            btn_frame.grid(row=9, column=0, columnspan=3, pady=(16, 16))
+            btn_frame.grid(row=10, column=0, columnspan=3, pady=(16, 16))
 
             ctk.CTkButton(btn_frame, text="Save", width=120,
                           command=self._save).pack(side="left", padx=8)
@@ -354,7 +374,7 @@ def _window_class():
 
         def _save(self) -> None:
             self._cfg["save_folder"]     = self._folder_var.get()
-            self._cfg["save_mode"]       = "sdr"
+            self._cfg["save_mode"]       = _SM_MODES[self._sm_var.get()]
             self._cfg["tonemapping"]     = _TM_MODES[self._tm_var.get()]
             self._cfg["sdr_white_nits"]  = int(self._nits_var.get())
             self._cfg["hotkeys_enabled"] = bool(self._hotkeys_var.get())

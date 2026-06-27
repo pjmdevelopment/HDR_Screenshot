@@ -11,6 +11,7 @@ Pillow          # image processing, SDR PNG save, tray icon + toast thumbnails
 pynput          # global hotkeys (optional at runtime) + hotkey capture
 pystray         # system tray icon
 customtkinter   # settings UI (lazily imported on first open)
+pillow-heif     # optional: true HDR export (10-bit AVIF, PQ/Rec.2020). Falls back to 16-bit PNG if absent
 # imageio        # no longer needed — 16-bit PNG is now written via stdlib
 # Notifications are now rendered in-process (Tkinter) — powershell.exe/WinRT
 # are no longer used.

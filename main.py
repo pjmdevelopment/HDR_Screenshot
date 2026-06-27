@@ -30,6 +30,7 @@ import capture
 import clipboard_win
 import config as cfg
 import hdr_detect
+import hdr_export
 import notification
 import settings_window
 import tonemapping
@@ -119,8 +120,7 @@ def _process_and_save(
         sdr_img.save(sdr_path, format="PNG")
 
     if mode in ("hdr", "both"):
-        hdr_path = os.path.join(save_folder, f"hdr_raw_{ts}.png")
-        tonemapping.save_hdr_png(frame, hdr_path)
+        hdr_path = _save_hdr_file(frame, save_folder, ts)
 
     if sdr_img is None:
         sdr_img = tonemapping.to_sdr(
@@ -131,9 +131,34 @@ def _process_and_save(
     return sdr_img, notify_path
 
 
+def _save_hdr_file(frame, save_folder: str, ts: str) -> str:
+    """Write the raw HDR frame as a true-HDR AVIF (PQ / Rec.2020) when
+    pillow-heif is available, otherwise a 16-bit linear PNG.  Returns the path."""
+    if hdr_export.is_available():
+        path = os.path.join(save_folder, f"hdr_{ts}.avif")
+        try:
+            hdr_export.save_hdr_avif(frame, path)
+            return path
+        except Exception as exc:
+            print(f"[main] AVIF HDR export failed ({exc}); using 16-bit PNG")
+    path = os.path.join(save_folder, f"hdr_raw_{ts}.png")
+    tonemapping.save_hdr_png(frame, path)
+    return path
+
+
 def _open_preview(frame, c: dict) -> None:
     """Tone-map *frame* and hand it to the annotation editor instead of saving
-    immediately (used when post_capture == 'preview')."""
+    immediately (used when post_capture == 'preview').  The true-HDR file (if
+    enabled) is still written from the raw frame — the editor only annotates the
+    SDR rendition."""
+    ts = _timestamp()
+    if c.get("save_mode", "sdr") in ("hdr", "both"):
+        try:
+            os.makedirs(c["save_folder"], exist_ok=True)
+            _save_hdr_file(frame, c["save_folder"], ts)
+        except Exception as exc:
+            print(f"[main] HDR save (preview) failed: {exc}")
+
     img = tonemapping.to_sdr(
         frame, method=c["tonemapping"],
         sdr_white_nits=c.get("sdr_white_nits", 250),
@@ -141,7 +166,7 @@ def _open_preview(frame, c: dict) -> None:
     ui.open_viewer(
         img,
         save_folder=c["save_folder"],
-        suggested_name=f"hdr_sdr_{_timestamp()}",
+        suggested_name=f"hdr_sdr_{ts}",
         jpg_quality=int(c.get("jpg_quality", 92)),
     )
 
