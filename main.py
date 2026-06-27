@@ -262,6 +262,69 @@ def _do_region() -> None:
         _capture_lock.release()
 
 
+def _do_window() -> None:
+    """Capture just the active (foreground) window.
+
+    Hotkey-only by design: clicking a toolbar/tray control would make *that*
+    window the foreground one, so the active window must be read at the moment a
+    global hotkey fires."""
+    if not _capture_lock.acquire(blocking=False):
+        return
+    was_visible = False
+    try:
+        with _config_lock:
+            c = dict(_config)
+
+        rect = capture.foreground_window_rect()   # read BEFORE hiding toolbar
+        if rect is None:
+            _notify("No active window to capture", "Error")
+            return
+
+        was_visible = _hide_toolbar_for_capture()
+        mon = capture.monitor_for_rect(rect)
+        frame = capture.grab(
+            mon, fresh=was_visible,
+            cursor=c.get("capture_cursor", False),
+            sdr_white_nits=c.get("sdr_white_nits", 250),
+        )
+        if frame is None:
+            _notify("Capture failed — is dxcam installed?", "Error")
+            return
+
+        # Window rect → monitor-local pixels, clamped to the monitor.
+        x1 = max(0, rect[0] - mon.left)
+        y1 = max(0, rect[1] - mon.top)
+        x2 = min(mon.width,  rect[2] - mon.left)
+        y2 = min(mon.height, rect[3] - mon.top)
+        if x2 <= x1 or y2 <= y1:
+            _notify("Active window is off-screen", "Error")
+            return
+        cropped = frame[y1:y2, x1:x2]
+
+        if c.get("post_capture", "instant") == "preview":
+            _open_preview(cropped, c)
+            return
+
+        sdr_img, notify_path = _process_and_save(
+            cropped, mon, c["save_folder"], c["save_mode"], c["tonemapping"],
+            sdr_white_nits=c.get("sdr_white_nits", 250),
+        )
+
+        clipboard_win.copy_image(sdr_img)
+        label = _hdr_label(mon)
+        _notify(
+            f"{label} Window saved → {c['save_folder']}",
+            image_path=notify_path,
+        )
+
+    except Exception as exc:
+        _notify(f"Error: {exc}", "Error")
+    finally:
+        if was_visible:
+            ui.show_toolbar_transient()
+        _capture_lock.release()
+
+
 # ── Hotkey management ─────────────────────────────────────────────────────────
 
 def _start_hotkey_listener() -> None:
@@ -271,6 +334,7 @@ def _start_hotkey_listener() -> None:
         enabled   = _config.get("hotkeys_enabled", True)
         hk_full   = _config["hotkey_fullscreen"]
         hk_region = _config["hotkey_region"]
+        hk_window = _config.get("hotkey_window", "<ctrl>+<shift>+w")
 
     # Always tear down any existing listener first, then re-register only when
     # hotkeys are enabled (toolbar + tray work regardless).
@@ -286,6 +350,7 @@ def _start_hotkey_listener() -> None:
         hotkeys = {
             hk_full:   lambda: threading.Thread(target=_do_fullscreen, daemon=True).start(),
             hk_region: lambda: threading.Thread(target=_do_region,     daemon=True).start(),
+            hk_window: lambda: threading.Thread(target=_do_window,     daemon=True).start(),
         }
         try:
             listener = keyboard.GlobalHotKeys(hotkeys)

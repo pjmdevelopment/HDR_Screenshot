@@ -76,6 +76,56 @@ def cursor_monitor() -> MonitorInfo:
     return get_monitors()[0]
 
 
+# ── Foreground (active) window ─────────────────────────────────────────────────
+
+_DWMWA_EXTENDED_FRAME_BOUNDS = 9
+
+_user32 = ctypes.windll.user32
+_user32.GetForegroundWindow.restype = ctypes.c_void_p
+_user32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(wt.RECT)]
+_user32.GetWindowRect.restype  = ctypes.c_bool
+
+
+def foreground_window_rect() -> "tuple[int, int, int, int] | None":
+    """Return the active window's bounds (l, t, r, b) in virtual-desktop coords,
+    or None if there is no usable foreground window.
+
+    Prefers the DWM *extended frame bounds* so the captured rect is tight to the
+    visible window (excluding the invisible resize border / drop shadow); falls
+    back to GetWindowRect."""
+    hwnd = _user32.GetForegroundWindow()
+    if not hwnd:
+        return None
+
+    rect = wt.RECT()
+    ok = False
+    try:
+        hr = ctypes.windll.dwmapi.DwmGetWindowAttribute(
+            ctypes.c_void_p(hwnd), ctypes.c_uint(_DWMWA_EXTENDED_FRAME_BOUNDS),
+            ctypes.byref(rect), ctypes.sizeof(rect),
+        )
+        ok = (hr == 0)
+    except Exception:
+        ok = False
+    if not ok:
+        if not _user32.GetWindowRect(ctypes.c_void_p(hwnd), ctypes.byref(rect)):
+            return None
+
+    if rect.right <= rect.left or rect.bottom <= rect.top:
+        return None
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
+def monitor_for_rect(rect: "tuple[int, int, int, int]") -> MonitorInfo:
+    """Return the monitor containing the centre of *rect*."""
+    cx = (rect[0] + rect[2]) // 2
+    cy = (rect[1] + rect[3]) // 2
+    for m in get_monitors():
+        if m.left <= cx < m.right and m.top <= cy < m.bottom:
+            return m
+    return get_monitors()[0]
+
+
 # ── DXGI output index mapping ─────────────────────────────────────────────────
 # EnumDisplayMonitors and DXGI output enumeration may use different orderings.
 # We match Win32 monitor geometry to DXGI output DesktopCoordinates.

@@ -24,6 +24,7 @@ DEFAULTS: dict = {
     "sdr_white_nits": 250,        # SDR reference white in nits (160–480); higher = darker output
     "hotkey_fullscreen": "<ctrl>+<shift>+h",
     "hotkey_region": "<ctrl>+<shift>+r",
+    "hotkey_window": "<ctrl>+<shift>+w",   # capture active window (hotkey only)
     "hotkeys_enabled": True,      # global hotkeys on/off (toolbar/tray work regardless)
     "show_toolbar": True,         # floating toolbar visible — remembered across launches
     "capture_mode": "free",       # region select mode: "free" (drag) | "fixed" (stamp)

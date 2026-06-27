@@ -164,7 +164,7 @@ def _window_class():
             self.title("HDR Screenshot — Settings")
             self.resizable(False, False)
             # Centre on the screen the window opens on.
-            w, h = 480, 470
+            w, h = 480, 515
             sw = self.winfo_screenwidth()
             sh = self.winfo_screenheight()
             x = max(0, (sw - w) // 2)
@@ -264,40 +264,54 @@ def _window_class():
                           command=lambda: self._start_capture("region")).grid(
                 row=4, column=2, padx=(0, 16), pady=6)
 
+            ctk.CTkLabel(self, text="Hotkey — Window", anchor="w").grid(
+                row=5, column=0, sticky="w", **pad)
+
+            self._hk_window_var = tk.StringVar(
+                master=self, value=_format_hotkey(self._cfg.get("hotkey_window",
+                                                                "<ctrl>+<shift>+w")))
+            self._hk_window_lbl = ctk.CTkLabel(self, textvariable=self._hk_window_var,
+                                                anchor="w", width=200)
+            self._hk_window_lbl.grid(row=5, column=1, sticky="w", padx=(0, 4), pady=6)
+
+            ctk.CTkButton(self, text="Change", width=80,
+                          command=lambda: self._start_capture("window")).grid(
+                row=5, column=2, padx=(0, 16), pady=6)
+
             # ── Enable global hotkeys ───────────────────────────────────────
             self._hotkeys_var = tk.BooleanVar(
                 master=self, value=bool(self._cfg.get("hotkeys_enabled", True)))
             ctk.CTkCheckBox(self, text="Enable global hotkeys",
                             variable=self._hotkeys_var).grid(
-                row=5, column=0, columnspan=2, sticky="w", padx=16, pady=(8, 0))
+                row=6, column=0, columnspan=2, sticky="w", padx=16, pady=(8, 0))
 
             # ── Capture cursor ──────────────────────────────────────────────
             self._cursor_var = tk.BooleanVar(
                 master=self, value=bool(self._cfg.get("capture_cursor", False)))
             ctk.CTkCheckBox(self, text="Capture cursor",
                             variable=self._cursor_var).grid(
-                row=5, column=2, sticky="w", padx=16, pady=(8, 0))
+                row=6, column=2, sticky="w", padx=16, pady=(8, 0))
 
             # ── After capture ───────────────────────────────────────────────
             ctk.CTkLabel(self, text="After capture", anchor="w").grid(
-                row=6, column=0, sticky="w", **pad)
+                row=7, column=0, sticky="w", **pad)
 
             self._pc_var = tk.StringVar(
                 master=self,
                 value=_PC_MODES_R[self._cfg.get("post_capture", "instant")])
             ctk.CTkOptionMenu(self, variable=self._pc_var,
                               values=list(_PC_MODES.keys()), width=300).grid(
-                row=6, column=1, columnspan=2, sticky="ew", padx=(0, 16), pady=6)
+                row=7, column=1, columnspan=2, sticky="ew", padx=(0, 16), pady=6)
 
             # ── Start with Windows ──────────────────────────────────────────
             self._autostart_var = tk.BooleanVar(master=self, value=autostart.is_enabled())
             ctk.CTkCheckBox(self, text="Start with Windows",
                             variable=self._autostart_var).grid(
-                row=7, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
+                row=8, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
 
             # ── Buttons ─────────────────────────────────────────────────────
             btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-            btn_frame.grid(row=8, column=0, columnspan=3, pady=(16, 16))
+            btn_frame.grid(row=9, column=0, columnspan=3, pady=(16, 16))
 
             ctk.CTkButton(btn_frame, text="Save", width=120,
                           command=self._save).pack(side="left", padx=8)
@@ -319,7 +333,12 @@ def _window_class():
 
         def _start_capture(self, which: str) -> None:
             """Begin listening for a new hotkey combo for *which*."""
-            var = self._hk_full_var if which == "fullscreen" else self._hk_region_var
+            mapping = {
+                "fullscreen": (self._hk_full_var,   "hotkey_fullscreen"),
+                "region":     (self._hk_region_var, "hotkey_region"),
+                "window":     (self._hk_window_var, "hotkey_window"),
+            }
+            var, cfg_key = mapping[which]
             var.set("Press combo…")
             self.update_idletasks()
 
@@ -327,10 +346,7 @@ def _window_class():
                 display = _format_hotkey(combo)
                 # Schedule UI update on the Tk main thread
                 self.after(0, lambda: var.set(display))
-                if which == "fullscreen":
-                    self._cfg["hotkey_fullscreen"] = combo
-                else:
-                    self._cfg["hotkey_region"] = combo
+                self._cfg[cfg_key] = combo
 
             capture = _HotkeyCapture(on_done)
             threading.Thread(target=capture.start, daemon=True).start()
