@@ -32,6 +32,7 @@ DEFAULTS: dict = {
     "idle_release_secs": 120,     # release cached cameras after N s idle (0 = never)
     "post_capture": "instant",    # after capture: "instant" (save+copy) | "preview" (editor)
     "jpg_quality": 92,            # default JPEG quality used by the editor's Save
+    "capture_cursor": False,      # composite the mouse cursor into captures
 }
 
 

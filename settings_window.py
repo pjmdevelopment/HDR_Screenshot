@@ -269,7 +269,14 @@ def _window_class():
                 master=self, value=bool(self._cfg.get("hotkeys_enabled", True)))
             ctk.CTkCheckBox(self, text="Enable global hotkeys",
                             variable=self._hotkeys_var).grid(
-                row=5, column=0, columnspan=3, sticky="w", padx=16, pady=(8, 0))
+                row=5, column=0, columnspan=2, sticky="w", padx=16, pady=(8, 0))
+
+            # ── Capture cursor ──────────────────────────────────────────────
+            self._cursor_var = tk.BooleanVar(
+                master=self, value=bool(self._cfg.get("capture_cursor", False)))
+            ctk.CTkCheckBox(self, text="Capture cursor",
+                            variable=self._cursor_var).grid(
+                row=5, column=2, sticky="w", padx=16, pady=(8, 0))
 
             # ── After capture ───────────────────────────────────────────────
             ctk.CTkLabel(self, text="After capture", anchor="w").grid(
@@ -334,6 +341,7 @@ def _window_class():
             self._cfg["tonemapping"]     = _TM_MODES[self._tm_var.get()]
             self._cfg["sdr_white_nits"]  = int(self._nits_var.get())
             self._cfg["hotkeys_enabled"] = bool(self._hotkeys_var.get())
+            self._cfg["capture_cursor"]  = bool(self._cursor_var.get())
             self._cfg["post_capture"]    = _PC_MODES[self._pc_var.get()]
             cfg.save(self._cfg)
 

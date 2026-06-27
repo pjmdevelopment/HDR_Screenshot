@@ -171,7 +171,11 @@ def _do_fullscreen() -> None:
 
         was_visible = _hide_toolbar_for_capture()
         mon = capture.cursor_monitor()
-        frame = capture.grab(mon, fresh=was_visible)
+        frame = capture.grab(
+            mon, fresh=was_visible,
+            cursor=c.get("capture_cursor", False),
+            sdr_white_nits=c.get("sdr_white_nits", 250),
+        )
         if frame is None:
             _notify("Capture failed — is dxcam installed?", "Error")
             return
@@ -211,7 +215,11 @@ def _do_region() -> None:
 
         was_visible = _hide_toolbar_for_capture()
         mon = capture.cursor_monitor()
-        frame = capture.grab(mon, fresh=was_visible)
+        frame = capture.grab(
+            mon, fresh=was_visible,
+            cursor=c.get("capture_cursor", False),
+            sdr_white_nits=c.get("sdr_white_nits", 250),
+        )
         if frame is None:
             _notify("Capture failed — is dxcam installed?", "Error")
             return

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+import cursor_win
 import hdr_detect
 from dxgi_capture import FP16Capture, FP16CaptureError, AccessLostError
 
@@ -135,6 +136,51 @@ def _build_dxgi_map(monitors: list[MonitorInfo]) -> None:
 def _dxgi_idx(monitor_idx: int) -> int:
     """Return DXGI output_idx for the given Win32 monitor idx."""
     return _win32_to_dxgi.get(monitor_idx, monitor_idx)
+
+
+# ── Cursor compositing ────────────────────────────────────────────────────────
+# DXGI/dxcam frames never include the cursor; we fetch it via Win32 and blend it
+# in here (optional, controlled by the capture_cursor setting).
+
+def _srgb_to_linear(c: np.ndarray) -> np.ndarray:
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def _composite_cursor(frame: np.ndarray, is_hdr: bool,
+                      sdr_white_nits: float, monitor: MonitorInfo) -> None:
+    """Alpha-blend the live cursor into *frame* (in place).
+
+    HDR frames are scRGB linear, so the sRGB cursor is linearised and scaled to
+    the SDR paper-white level (sdr_white_nits/80) — matching how tonemapping
+    later maps SDR white to display white.  SDR frames are already sRGB-encoded,
+    so the cursor blends directly."""
+    try:
+        res = cursor_win.get_cursor()
+    except Exception as exc:
+        print(f"[capture] cursor read failed: {exc}")
+        res = None
+    if res is None:
+        return
+
+    bgra, sx, sy = res
+    ch, cw = bgra.shape[:2]
+    fh, fw = frame.shape[:2]
+
+    x0 = sx - monitor.left
+    y0 = sy - monitor.top
+    fx1, fy1 = max(0, x0), max(0, y0)
+    fx2, fy2 = min(fw, x0 + cw), min(fh, y0 + ch)
+    if fx2 <= fx1 or fy2 <= fy1:
+        return                                  # cursor is off this monitor
+
+    cur = bgra[fy1 - y0:fy2 - y0, fx1 - x0:fx2 - x0].astype(np.float32)
+    alpha   = cur[:, :, 3:4] / 255.0
+    src_bgr = cur[:, :, :3] / 255.0             # sRGB-encoded BGR
+    if is_hdr:
+        src_bgr = _srgb_to_linear(src_bgr) * (sdr_white_nits / 80.0)
+
+    region = frame[fy1:fy2, fx1:fx2, :3]
+    frame[fy1:fy2, fx1:fx2, :3] = region * (1.0 - alpha) + src_bgr * alpha
 
 
 # ── Camera pool ───────────────────────────────────────────────────────────────
@@ -269,7 +315,9 @@ def _get_camera(win32_idx: int) -> "tuple[object, bool]":
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def grab(monitor: MonitorInfo | None = None,
-         fresh: bool = False) -> "np.ndarray | None":
+         fresh: bool = False,
+         cursor: bool = False,
+         sdr_white_nits: float = 250.0) -> "np.ndarray | None":
     """
     Capture *monitor* (defaults to the one under the cursor).
 
@@ -279,6 +327,9 @@ def grab(monitor: MonitorInfo | None = None,
                  Used after the toolbar self-hides so the bar is not in the
                  shot — the FP16 path caches the last frame on a static
                  desktop, which we must invalidate here.
+        cursor:  composite the live mouse cursor into the frame.
+        sdr_white_nits: SDR paper-white level used to scale the cursor on HDR
+                 frames (ignored on SDR frames).
 
     Returns float32 BGRA:
       HDR path  — linear scRGB values, may exceed 1.0
@@ -321,10 +372,13 @@ def grab(monitor: MonitorInfo | None = None,
                 _touch_idle_timer()
                 if is_hdr:
                     # FP16Capture already returns float32 BGRA (scRGB linear)
-                    return frame
+                    out = frame
                 else:
                     # dxcam returns uint8 BGRA → normalise to float32 [0,1]
-                    return frame.astype(np.float32) / 255.0
+                    out = frame.astype(np.float32) / 255.0
+                if cursor:
+                    _composite_cursor(out, is_hdr, sdr_white_nits, monitor)
+                return out
 
             except AccessLostError:
                 # Display mode change: drop this camera, next call will reinit
