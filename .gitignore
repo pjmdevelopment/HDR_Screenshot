@@ -38,3 +38,6 @@ Desktop.ini
 
 # Personal developer notes
 DEVNOTES.md
+
+# PyInstaller version metadata (generated)
+version_info.txt

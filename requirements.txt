@@ -4,15 +4,15 @@
 # Tip: pin exact versions (e.g. `numpy==2.1.3`) for reproducible, supply-chain-
 # safe builds.  Run `pip freeze` after a known-good install to capture them.
 
-dxcam           # DXGI Desktop Duplication API — HDR FP16 capture
-comtypes        # COM interop used by the fp16 capture path (dxgi_capture)
-numpy           # tone-mapping math
-Pillow          # image processing, SDR PNG save, tray icon + toast thumbnails
-pynput          # global hotkeys (optional at runtime) + hotkey capture
-pystray         # system tray icon
-customtkinter   # settings UI (lazily imported on first open)
-pillow-heif     # optional: true HDR export (10-bit AVIF, PQ/Rec.2020). Falls back to 16-bit PNG if absent
-# imageio        # no longer needed — 16-bit PNG is now written via stdlib
+dxcam==0.3.0           # DXGI Desktop Duplication API — HDR FP16 capture
+comtypes==1.4.16       # COM interop used by the fp16 capture path (dxgi_capture)
+numpy==2.2.6           # tone-mapping math
+Pillow==11.3.0         # image processing, SDR PNG save, tray icon + toast thumbnails
+pynput==1.8.2          # global hotkeys (optional at runtime) + hotkey capture
+pystray==0.19.5        # system tray icon
+customtkinter==5.2.2   # settings UI (lazily imported on first open)
+pillow-heif==1.4.0     # optional: true HDR export (10-bit AVIF, PQ/Rec.2020). Falls back to 16-bit PNG if absent
+# imageio              # no longer needed — 16-bit PNG is now written via stdlib
 # Notifications are now rendered in-process (Tkinter) — powershell.exe/WinRT
 # are no longer used.
-pyinstaller     # packaging — run:  pyinstaller --onefile --windowed --icon app.ico main.py
+pyinstaller==6.21.0    # packaging — run:  pyinstaller --onefile --windowed --icon app.ico main.py
